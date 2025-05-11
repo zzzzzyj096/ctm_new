@@ -1,6 +1,6 @@
 # 🕰️ The Continuous Thought Machine
 
-📚 [PAPER: Technical Report](https://pub.sakana.ai/ctm/paper) | 📝 [Blog](https://sakana.ai/ctm/) | 🕹️ [Interactive Website](https:pub.sakana.ai/ctm)
+📚 [PAPER: Technical Report](https://pub.sakana.ai/ctm/paper) | 📝 [Blog](https://sakana.ai/ctm/) | 🕹️ [Interactive Website](https://pub.sakana.ai/ctm)
 
 ![Activations](assets/activations.gif)
 
