@@ -1,0 +1,35 @@
+python -m tasks.mazes.train \
+--model ctm \
+--log_dir logs/mazes/ctm/d=2048--i=512--heads=16--sd=8--nlm=32--synch=64-32-h=32-first-last--iters=75x25--backbone=34-2 \
+--neuron_select_type first-last \
+--dataset mazes-large \
+--synapse_depth 8 \
+--heads 16 \
+--iterations 75 \
+--memory_length 25 \
+--d_model 2048 \
+--d_input 512 \
+--backbone_type resnet34-2 \
+--n_synch_out 64 \
+--n_synch_action 32 \
+--memory_hidden_dims 32 \
+--deep_memory \
+--weight_decay 0.000 \
+--batch_size 64 \
+--batch_size_test 128 \
+--n_test_batches 20 \
+--gradient_clipping -1 \
+--use_scheduler \
+--scheduler_type cosine \
+--warmup_steps 10000 \
+--training_iterations 1000001 \
+--no-do_normalisation \
+--track_every 1000 \
+--lr 1e-4 \
+--no-reload \
+--dropout 0.1 \
+--positional_embedding_type none  \
+--maze_route_length 100 \
+--cirriculum_lookahead 5 \
+--device 0 \
+--no-expand_range
