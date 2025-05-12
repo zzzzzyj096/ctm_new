@@ -127,7 +127,9 @@ We also provide analysis and plotting code to replicate many of the plots in our
 
 
 ## Checkpoints and data
-You can download the data and checkpoints from here: https://drive.google.com/drive/folders/1f4N0ndIDrRvac5fUnWof33KWhvz8iqo_?usp=drive_link
+You can download the data and checkpoints from here: 
+- checkpoints: https://drive.google.com/drive/folders/1vSg8T7FqP-guMDk1LU7_jZaQtXFP9sZg
+- maze data: https://drive.google.com/file/d/1cBgqhaUUtsrll8-o2VY42hPpyBcfFv86/view?usp=drivesdk
 
 Checkpoints go in the `checkpoints` folder. For instance, when properly populated, the checkpoints folder will have the maze checkpoint in `checkpoints/mazes/...`
 
