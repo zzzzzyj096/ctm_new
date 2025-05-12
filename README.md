@@ -4,7 +4,7 @@
 
 ![Activations](assets/activations.gif)
 
-We present the Continuous Thought Machine (CTM), a model designed to unfold and then leverage neural activity as the underlying mechanism for observation and action. The CTM has three core innovations:
+We present the Continuous Thought Machine (CTM), a model designed to unfold and then leverage neural activity as the underlying mechanism for observation and action. Our contributions are:
 
 1. An internal temporal axis, decoupled from any input data, that enables neuron activity to unfold.
 
