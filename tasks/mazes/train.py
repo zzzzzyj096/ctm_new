@@ -151,9 +151,15 @@ if __name__=='__main__':
     with open(f'{args.log_dir}/args.txt', 'w') as f:
         print(args, file=f)
 
-    # Configure device string
-    device = f'cuda:{args.device[0]}' if args.device[0] != -1 else 'cpu'
-    print(f'Running model {args.model} on {device} for dataset {args.dataset}')
+    # Configure device string (support MPS on macOS)
+    if args.device[0] != -1:
+        device = f'cuda:{args.device[0]}'
+    elif torch.backends.mps.is_available():
+        device = 'mps'
+    else:
+        device = 'cpu'
+    print(f'Running model {args.model} on {device}')
+
 
     # Build model conditionally
     model = None
