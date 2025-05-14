@@ -147,7 +147,10 @@ class ContinuousThoughtMachineQAMNIST(ContinuousThoughtMachine):
 
         # --- Initialise Recurrent Synch Values  ---
         decay_alpha_action, decay_beta_action = None, None
-        r_action, r_out = torch.exp(-torch.clamp(self.decay_params_action, 0, 15)).unsqueeze(0).repeat(B, 1), torch.exp(-torch.clamp(self.decay_params_out, 0, 15)).unsqueeze(0).repeat(B, 1)
+        self.decay_params_action.data = torch.clamp(self.decay_params_action, 0, 15)  # Fix from github user: kuviki
+        self.decay_params_out.data = torch.clamp(self.decay_params_out, 0, 15)
+        r_action, r_out = torch.exp(-self.decay_params_action).unsqueeze(0).repeat(B, 1), torch.exp(-self.decay_params_out).unsqueeze(0).repeat(B, 1)
+
         _, decay_alpha_out, decay_beta_out = self.compute_synchronisation(activated_state, None, None, r_out, synch_type='out')
 
         prev_input = None
