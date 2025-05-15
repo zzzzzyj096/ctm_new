@@ -17,7 +17,7 @@ from models.utils import reshape_predictions
 from tasks.parity.utils import reshape_inputs
 from tasks.parity.analysis.run import build_model_from_checkpoint_path
 
-from tasks.image_classification.analysis.build_imagenet_viz_blog import save_frames_to_mp4
+from tasks.image_classification.plotting import save_frames_to_mp4
 
 
 def make_parity_gif(
