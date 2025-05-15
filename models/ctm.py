@@ -17,11 +17,11 @@ class ContinuousThoughtMachine(nn.Module):
     """
     Continuous Thought Machine (CTM).
 
-    Technical report: TODO:LINK
+    Technical report: https://arxiv.org/abs/2505.05522
 
-    Technical report (web version): TODO:LINK
+    Interactive Website: https://pub.sakana.ai/ctm/
 
-    Blog: TODO:LINK
+    Blog: https://sakana.ai/ctm/
 
     Thought takes time and reasoning is a process. 
     
