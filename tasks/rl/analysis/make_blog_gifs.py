@@ -11,7 +11,7 @@ from scipy.special import softmax
 from tasks.rl.train import Agent
 from tasks.rl.analysis.run import get_training_data_from_checkpoint_path, get_size_action_space, prepare_env
 from tasks.rl.utils import combine_tracking_data
-from tasks.image_classification.analysis.build_imagenet_viz_blog import save_frames_to_mp4
+from tasks.image_classification.plotting import save_frames_to_mp4
 
 
 def load_model(agent, checkpoint_path, device):

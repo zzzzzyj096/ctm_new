@@ -25,7 +25,7 @@ from tasks.qamnist.utils import prepare_model
 from models.utils import load_checkpoint, get_model_args_from_checkpoint
 from tasks.qamnist.analysis.run import prepare_data_for_analysis
 from tasks.parity.utils import reshape_attention_weights
-from tasks.image_classification.analysis.build_imagenet_viz_blog import save_frames_to_mp4
+from tasks.image_classification.plotting import save_frames_to_mp4
 
 def compose_modular_expressions(input_string):
     lines = input_string.strip().split('\n')
