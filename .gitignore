@@ -16,3 +16,4 @@ data/*
 !data/custom_datasets.py
 examples/*
 !examples/01_mnist.ipynb
+checkpoints
