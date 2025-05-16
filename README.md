@@ -16,6 +16,10 @@ We demonstrate the CTM's strong performance and versatility across a range of ch
 
 We provide all necessary code to reproduce our results and invite others to build upon and use CTMs in their own work.
 
+## [Interactive Website](https://pub.sakana.ai/ctm)
+Please see our [Interactive Website](https://pub.sakana.ai/ctm) for a maze-solving demo, many demonstrative videos of the method, results, and other findings. 
+
+
 ## Repo structure
 ```
 ├── tasks
