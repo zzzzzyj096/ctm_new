@@ -3,7 +3,7 @@ torch
 torchvision
 matplotlib
 seaborn
-tdqm
+tqdm
 opencv-python
 imageio
 scikit-learn
