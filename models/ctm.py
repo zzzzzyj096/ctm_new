@@ -247,7 +247,7 @@ class ContinuousThoughtMachine(nn.Module):
 
     def set_initial_rgb(self):
         """
-        This is largely to accommodate training on grescale images and is legacy, but it
+        This is largely to accommodate training on grayscale images and is legacy, but it
         doesn't hurt the model in any way that we can tell.
         """
         if 'resnet' in self.backbone_type:
