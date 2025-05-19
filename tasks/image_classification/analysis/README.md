@@ -1,12 +1,7 @@
 # Analysis
 
-This folder contains analysis code for image classifcation experiments. To build GIFs for imagenet run (from the base directory):
+This folder contains the analysis code for the image classifcation experiments. Running the following from the base directory will generate figures, gifs and mp4 files:
 
 ```
-python -m tasks.image_classification.analysis.build_imagenet_viz
-```
-
-To build the plots in the paper run:
-```
-python -m tasks.image_classification.analysis.imagenet_evaluate_and_plot
+python -m tasks.image_classification.analysis.run_imagenet_analysis
 ```
