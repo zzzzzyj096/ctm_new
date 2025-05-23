@@ -127,7 +127,10 @@ For debugging in VSCode, this configuration example might be helpful to you:
 
 ## Running analyses
 
-We also provide analysis and plotting code to replicate many of the plots in our paper. See `tasks/.../analysis/*` for more details on that. We als provide some data (e.g., the mazes we generated for training) and checkpoints (see [here](#checkpoints-and-data))
+We also provide analysis and plotting code to replicate many of the plots in our paper. See `tasks/.../analysis/*` for more details on that. We also provide some data (e.g., the mazes we generated for training) and checkpoints (see [here](#checkpoints-and-data)). Note that ffmpeg is required for generating mp4 files from the analysis scripts. It can be installed with:
+```
+conda install -c conda-forge ffmpeg
+```
 
 
 ## Checkpoints and data

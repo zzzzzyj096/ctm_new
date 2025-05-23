@@ -35,7 +35,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Train CTM on Parity Task")
 
     # Model Architecture 
-    parser.add_argument('--model_type', type=str, default="ctm", choices=['ctm', 'lstm'], help='Sequence length for parity task.')
+    parser.add_argument('--model_type', type=str, default="ctm", choices=['ctm', 'lstm'], help='The type of model to train.')
     parser.add_argument('--parity_sequence_length', type=int, default=64, help='Sequence length for parity task.')
     parser.add_argument('--d_model', type=int, default=1024, help='Dimension of the model.')
     parser.add_argument('--d_input', type=int, default=512, help='Dimension of the input projection.')
