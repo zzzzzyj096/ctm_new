@@ -108,7 +108,7 @@ def parse_args():
 
     # Logging and Saving
     parser.add_argument('--log_dir', type=str, default='logs/scratch', help='Directory for logging.')
-    parser.add_argument('--dataset', type=str, default='mazes-medium', help='Dataset to use.', choices=['mazes-medium', 'mazes-large']) 
+    parser.add_argument('--dataset', type=str, default='mazes-medium', help='Dataset to use.', choices=['mazes-medium', 'mazes-large', 'mazes-small']) 
     parser.add_argument('--data_root', type=str, default='data/mazes', help='Data root.')
     
     parser.add_argument('--save_every', type=int, default=1000, help='Save checkpoints every this many iterations.')
@@ -139,7 +139,7 @@ if __name__=='__main__':
     set_seed(args.seed, False)
     if not os.path.exists(args.log_dir): os.makedirs(args.log_dir)
 
-    assert args.dataset in ['mazes-medium', 'mazes-large']
+    assert args.dataset in ['mazes-medium', 'mazes-large', 'mazes-small']
 
     
 

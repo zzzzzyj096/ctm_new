@@ -96,7 +96,7 @@ def make_maze_gif(inputs, predictions, targets, attention_tracking, save_locatio
     route_colours = []
     solution_maze = draw_path(np.moveaxis(inputs, 0, -1), targets)
     
-    # cv2.imwrite(f'{save_location}/ground_truth.png', solution_maze[:,:,::-1]*255)
+    n_heads = attention_tracking.shape[1]
     mosaic = [['overlay', 'overlay', 'overlay', 'overlay', 'route', 'route', 'route', 'route'],
               ['overlay', 'overlay', 'overlay', 'overlay', 'route', 'route', 'route', 'route'],
               ['overlay', 'overlay', 'overlay', 'overlay', 'route', 'route', 'route', 'route'],
@@ -104,9 +104,25 @@ def make_maze_gif(inputs, predictions, targets, attention_tracking, save_locatio
               ['head_0', 'head_1', 'head_2', 'head_3', 'head_4', 'head_5', 'head_6', 'head_7'],
               ['head_8', 'head_9', 'head_10', 'head_11', 'head_12', 'head_13', 'head_14', 'head_15'],
               ]
+    if n_heads == 8:
+        mosaic = [['overlay', 'overlay', 'overlay', 'overlay', 'route', 'route', 'route', 'route'],
+              ['overlay', 'overlay', 'overlay', 'overlay', 'route', 'route', 'route', 'route'],
+              ['overlay', 'overlay', 'overlay', 'overlay', 'route', 'route', 'route', 'route'],
+              ['overlay', 'overlay', 'overlay', 'overlay', 'route', 'route', 'route', 'route'],
+              ['head_0', 'head_1', 'head_2', 'head_3', 'head_4', 'head_5', 'head_6', 'head_7'],
+              ]
+    elif n_heads == 4:
+        mosaic = [['overlay', 'overlay', 'overlay', 'overlay', 'route', 'route', 'route', 'route'],
+              ['overlay', 'overlay', 'overlay', 'overlay', 'route', 'route', 'route', 'route'],
+              ['overlay', 'overlay', 'overlay', 'overlay', 'route', 'route', 'route', 'route'],
+              ['overlay', 'overlay', 'overlay', 'overlay', 'route', 'route', 'route', 'route'],
+              ['head_0', 'head_0', 'head_1', 'head_1', 'head_2', 'head_2', 'head_3', 'head_3'],
+              ['head_0', 'head_0', 'head_1', 'head_1', 'head_2', 'head_2', 'head_3', 'head_3'],
+              ]
+
     img_aspect = 1
     figscale = 1
-    aspect_ratio = (8 * figscale, 6 * figscale * img_aspect) # W, H
+    aspect_ratio = (len(mosaic[0]) * figscale, len(mosaic) * figscale * img_aspect) # W, H
     
     route_steps = [np.unravel_index(np.argmax((inputs == np.reshape(np.array([1, 0, 0]), (3, 1, 1))).all(0)), inputs.shape[1:])]  # Starting point
     frames = []
