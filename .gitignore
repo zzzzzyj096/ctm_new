@@ -17,4 +17,5 @@ data/*
 examples/*
 !examples/01_mnist.ipynb
 !examples/02_inference.ipynb
+!examples/03_mazes.ipynb
 checkpoints
