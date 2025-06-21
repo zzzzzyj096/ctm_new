@@ -18,4 +18,5 @@ examples/*
 !examples/01_mnist.ipynb
 !examples/02_inference.ipynb
 !examples/03_mazes.ipynb
+!examples/04_parity.ipynb
 checkpoints
