@@ -88,7 +88,7 @@ def draw_path(x, route, valid_only=False, gt=False, cmap=None):
 
     return x
 
-def make_maze_gif(inputs, predictions, targets, attention_tracking, save_location):
+def make_maze_gif(inputs, predictions, targets, attention_tracking, save_location, verbose=True):
     """
     Expect inputs, predictions, targets as numpy arrays
     """
@@ -130,7 +130,7 @@ def make_maze_gif(inputs, predictions, targets, attention_tracking, save_locatio
     cmap_viridis = plt.get_cmap('viridis')
     step_linspace = np.linspace(0, 1, predictions.shape[-1])  # For sampling colours
     with tqdm(total=predictions.shape[-1], initial=0, leave=True, position=1, dynamic_ncols=True) as pbar:
-        pbar.set_description('Processing frames for maze plotting')
+        if verbose: pbar.set_description('Processing frames for maze plotting')
         for stepi in np.arange(0, predictions.shape[-1], 1):
             fig, axes = plt.subplot_mosaic(mosaic, figsize=aspect_ratio)
             for ax in axes.values():
