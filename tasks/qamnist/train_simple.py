@@ -11,10 +11,6 @@ import torch
 torch.set_float32_matmul_precision('high')
 from tqdm.auto import tqdm
 
-import sys
-import os
-#sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
-
 from utils.samplers import QAMNISTSampler
 from tasks.image_classification.plotting import plot_neural_dynamics
 from tasks.qamnist.plotting import make_qamnist_gif
@@ -22,7 +18,7 @@ from utils.housekeeping import set_seed, zip_python_code
 from utils.losses import qamnist_loss
 from utils.schedulers import WarmupCosineAnnealingLR, WarmupMultiStepLR, warmup
 from tasks.parity.utils import reshape_attention_weights
-from tasks.qamnist.utils_old import get_dataset, prepare_model
+from tasks.qamnist.utils import get_dataset, prepare_model
 from models.utils import reshape_predictions, get_latest_checkpoint
 
 
@@ -71,7 +67,7 @@ def parse_args():
     parser.add_argument('--q_num_answer_steps', type=int, default=10, help='The number of steps to answer a question, after observing digits and operator embeddings.')
 
     # Model Architecture
-    parser.add_argument('--model_type', type=str, default='ctm', choices=['ctm', 'lstm','simplernn','eirnn','ctm_simple'], help='Type of model to use.')
+    parser.add_argument('--model', type=str, default='ctm', choices=['ctm', 'lstm'], help='Type of model to use.')
     parser.add_argument('--d_model', type=int, default=1024, help='Dimension of the model.')
     parser.add_argument('--d_input', type=int, default=64, help='Dimension of the input.')
     parser.add_argument('--synapse_depth', type=int, default=1, help='Depth of U-NET model for synapse. 1=linear, no unet.')
@@ -151,7 +147,7 @@ if __name__=='__main__':
         device = 'mps'
     else:
         device = 'cpu'
-    print(f'Running model {args.model_type} on {device}')
+    print(f'Running model {args.model} on {device}')
 
     # Build model
     model = prepare_model(args, device)

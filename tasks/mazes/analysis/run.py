@@ -133,7 +133,7 @@ def _load_ctm_model(checkpoint_path, device):
         n_random_pairing_self=model_args.n_random_pairing_self,
     ).to(device)
 
-    load_result = model.load_state_dict(checkpoint['state_dict'], strict=False)
+    load_result = model.load_state_dict(checkpoint['model_state_dict'], strict=False)
     print(f"Loaded state_dict. Missing keys: {load_result.missing_keys}, Unexpected keys: {load_result.unexpected_keys}")
     model.eval()
     return model

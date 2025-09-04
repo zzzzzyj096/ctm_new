@@ -2,17 +2,19 @@
 RUN=1
 ITERATIONS=75
 MEMORY_LENGTH=25
-LOG_DIR="logs/parity/run${RUN}/ctm_${ITERATIONS}_${MEMORY_LENGTH}"
+dmodel=64
+LOG_DIR="logs/parity/run${RUN}/eirnn_${ITERATIONS}_${DMODEL}"
 SEED=$((RUN - 1))
 
 python -m tasks.parity.train \
+    --model_type 'eirnn'\
     --log_dir $LOG_DIR \
     --seed $SEED \
     --iterations $ITERATIONS \
     --memory_length $MEMORY_LENGTH \
     --parity_sequence_length 64  \
     --n_test_batches 20 \
-    --d_model 512 \
+    --d_model 64 \
     --d_input 256 \
     --n_synch_out 16 \
     --n_synch_action 16 \
@@ -36,9 +38,7 @@ python -m tasks.parity.train \
     --warmup_steps 500 \
     --track_every 1000 \
     --save_every 5000 \
-    --no-reload \
+    --reload \
     --no-reload_model_only \
     --device 0 \
     --no-use_amp \
-    --neuron_select_type "random-pairing"
-

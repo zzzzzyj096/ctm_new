@@ -21,6 +21,8 @@ from tasks.image_classification.imagenet_classes import IMAGENET2012_CLASSES
 from models.ctm import ContinuousThoughtMachine
 from models.lstm import LSTMBaseline
 from models.ff import FFBaseline
+from models.simpleEIRNN import Net
+from models.simpleRNN import SimpleNet
 from tasks.image_classification.plotting import plot_neural_dynamics, make_classification_gif
 from utils.housekeeping import set_seed, zip_python_code
 from utils.losses import image_classification_loss # Used by CTM, LSTM
@@ -60,35 +62,35 @@ def parse_args():
     parser = argparse.ArgumentParser()
 
     # Model Selection
-    parser.add_argument('--model', type=str, default='ctm', choices=['ctm', 'lstm', 'ff'], help='Model type to train.')
+    parser.add_argument('--model_type', type=str, default='ctm', choices=['ctm', 'lstm', 'ff','eirnn','simplernn'], help='Model type to train.')
 
     # Model Architecture
     # Common
-    parser.add_argument('--d_model', type=int, default=512, help='Dimension of the model.')
+    parser.add_argument('--d_model', type=int, default=128, help='Dimension of the model.')
     parser.add_argument('--dropout', type=float, default=0.0, help='Dropout rate.')
-    parser.add_argument('--backbone_type', type=str, default='resnet18-4', help='Type of backbone featureiser.')
+    parser.add_argument('--backbone_type', type=str, default='MNISTBackbone', help='Type of backbone featureiser.')
     # CTM / LSTM specific
     parser.add_argument('--d_input', type=int, default=128, help='Dimension of the input (CTM, LSTM).')
-    parser.add_argument('--heads', type=int, default=4, help='Number of attention heads (CTM, LSTM).')
-    parser.add_argument('--iterations', type=int, default=75, help='Number of internal ticks (CTM, LSTM).')
+    parser.add_argument('--heads', type=int, default=3, help='Number of attention heads (CTM, LSTM).')
+    parser.add_argument('--iterations', type=int, default=15, help='Number of internal ticks (CTM, LSTM).')
     parser.add_argument('--positional_embedding_type', type=str, default='none', help='Type of positional embedding (CTM, LSTM).',
                         choices=['none',
                                  'learnable-fourier',
                                  'multi-learnable-fourier',
                                  'custom-rotational'])
     # CTM specific
-    parser.add_argument('--synapse_depth', type=int, default=4, help='Depth of U-NET model for synapse. 1=linear, no unet (CTM only).')
-    parser.add_argument('--n_synch_out', type=int, default=512, help='Number of neurons to use for output synch (CTM only).')
-    parser.add_argument('--n_synch_action', type=int, default=512, help='Number of neurons to use for observation/action synch (CTM only).')
-    parser.add_argument('--neuron_select_type', type=str, default='random-pairing', help='Protocol for selecting neuron subset (CTM only).')
-    parser.add_argument('--n_random_pairing_self', type=int, default=0, help='Number of neurons paired self-to-self for synch (CTM only).')
-    parser.add_argument('--memory_length', type=int, default=25, help='Length of the pre-activation history for NLMS (CTM only).')
-    parser.add_argument('--deep_memory', action=argparse.BooleanOptionalAction, default=True, help='Use deep memory (CTM only).')
-    parser.add_argument('--memory_hidden_dims', type=int, default=4, help='Hidden dimensions of the memory if using deep memory (CTM only).')
-    parser.add_argument('--dropout_nlm', type=float, default=None, help='Dropout rate for NLMs specifically. Unset to match dropout on the rest of the model (CTM only).')
-    parser.add_argument('--do_normalisation', action=argparse.BooleanOptionalAction, default=False, help='Apply normalization in NLMs (CTM only).')
+    #parser.add_argument('--synapse_depth', type=int, default=4, help='Depth of U-NET model for synapse. 1=linear, no unet (CTM only).')
+    #parser.add_argument('--n_synch_out', type=int, default=512, help='Number of neurons to use for output synch (CTM only).')
+    #parser.add_argument('--n_synch_action', type=int, default=512, help='Number of neurons to use for observation/action synch (CTM only).')
+    #parser.add_argument('--neuron_select_type', type=str, default='random-pairing', help='Protocol for selecting neuron subset (CTM only).')
+    #parser.add_argument('--n_random_pairing_self', type=int, default=0, help='Number of neurons paired self-to-self for synch (CTM only).')
+    #parser.add_argument('--memory_length', type=int, default=25, help='Length of the pre-activation history for NLMS (CTM only).')
+    #parser.add_argument('--deep_memory', action=argparse.BooleanOptionalAction, default=True, help='Use deep memory (CTM only).')
+    #parser.add_argument('--memory_hidden_dims', type=int, default=4, help='Hidden dimensions of the memory if using deep memory (CTM only).')
+    #parser.add_argument('--dropout_nlm', type=float, default=None, help='Dropout rate for NLMs specifically. Unset to match dropout on the rest of the model (CTM only).')
+    #parser.add_argument('--do_normalisation', action=argparse.BooleanOptionalAction, default=False, help='Apply normalization in NLMs (CTM only).')
     # LSTM specific
-    parser.add_argument('--num_layers', type=int, default=2, help='Number of LSTM stacked layers (LSTM only).')
+    parser.add_argument('--num_layers', type=int, default=1, help='Number of LSTM stacked layers (LSTM only).')
 
     # Training
     parser.add_argument('--batch_size', type=int, default=32, help='Batch size for training.')
@@ -126,61 +128,22 @@ def parse_args():
 
 
 def get_dataset(dataset, data_root=None):
-    if dataset=='imagenet':
-        dataset_mean = [0.485, 0.456, 0.406]
-        dataset_std = [0.229, 0.224, 0.225]
-
-        normalize = transforms.Normalize(mean=dataset_mean, std=dataset_std)
+    if dataset == 'mnist':
+        dataset_mean = (0.1307,)  # 单通道均值
+        dataset_std = (0.3081,)  # 单通道标准差
         train_transform = transforms.Compose([
-            transforms.RandomResizedCrop(224),
-                    transforms.RandomHorizontalFlip(),
-                    transforms.ToTensor(),
-                    normalize])
+            transforms.RandomAffine(degrees=15, translate=(0.1, 0.1), scale=(0.9, 1.1)),
+            transforms.RandomRotation(10),
+            transforms.ToTensor(),
+            transforms.Normalize(dataset_mean, dataset_std)
+        ])
         test_transform = transforms.Compose([
-            transforms.Resize(256),
-            transforms.CenterCrop(224),
-                    transforms.ToTensor(),
-                    normalize])
-
-        class_labels = list(IMAGENET2012_CLASSES.values())
-
-        train_data = ImageNet(which_split='train', transform=train_transform, data_root=data_root)
-        test_data = ImageNet(which_split='validation', transform=test_transform, data_root=data_root)
-    elif dataset=='cifar10':
-        dataset_mean = [0.49139968, 0.48215827, 0.44653124]
-        dataset_std = [0.24703233, 0.24348505, 0.26158768]
-        normalize = transforms.Normalize(mean=dataset_mean, std=dataset_std)
-        train_transform = transforms.Compose(
-            [transforms.AutoAugment(transforms.AutoAugmentPolicy.CIFAR10),
             transforms.ToTensor(),
-            normalize,
-            ])
-
-        test_transform = transforms.Compose(
-            [transforms.ToTensor(),
-            normalize,
-            ])
-        train_data = datasets.CIFAR10(data_root, train=True, transform=train_transform, download=True)
-        test_data = datasets.CIFAR10(data_root, train=False, transform=test_transform, download=True)
-        class_labels = ['air', 'auto', 'bird', 'cat', 'deer', 'dog', 'frog', 'horse', 'ship', 'truck']
-    elif dataset=='cifar100':
-        dataset_mean = [0.5070751592371341, 0.48654887331495067, 0.4409178433670344]
-        dataset_std = [0.2673342858792403, 0.2564384629170882, 0.27615047132568393]
-        normalize = transforms.Normalize(mean=dataset_mean, std=dataset_std)
-
-        train_transform = transforms.Compose(
-            [transforms.AutoAugment(transforms.AutoAugmentPolicy.CIFAR10),
-            transforms.ToTensor(),
-            normalize,
-            ])
-        test_transform = transforms.Compose(
-            [transforms.ToTensor(),
-            normalize,
-            ])
-        train_data = datasets.CIFAR100(data_root, train=True, transform=train_transform, download=True)
-        test_data = datasets.CIFAR100(data_root, train=False, transform=test_transform, download=True)
-        idx_order = np.argsort(np.array(list(train_data.class_to_idx.values())))
-        class_labels = list(np.array(list(train_data.class_to_idx.keys()))[idx_order])
+            transforms.Normalize(dataset_mean, dataset_std)
+        ])
+        train_data = datasets.MNIST(root="./data", train=True, download=True, transform=train_transform)
+        test_data = datasets.MNIST(root="./data", train=False, download=True, transform=test_transform)
+        class_labels = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9']
     else:
         raise NotImplementedError
 
@@ -196,7 +159,7 @@ if __name__=='__main__':
     set_seed(args.seed, False)
     if not os.path.exists(args.log_dir): os.makedirs(args.log_dir)
 
-    assert args.dataset in ['cifar10', 'cifar100', 'imagenet']
+    assert args.dataset in ['cifar10', 'cifar100', 'imagenet','mnist']
 
     # Data
     train_data, test_data, class_labels, dataset_mean, dataset_std = get_dataset(args.dataset, args.data_root)
@@ -220,54 +183,38 @@ if __name__=='__main__':
         device = 'mps'
     else:
         device = 'cpu'
-    print(f'Running model {args.model} on {device}')
+    print(f'Running model {args.model_type} on {device}')
 
     # Build model conditionally
     model = None
-    if args.model == 'ctm':
-        model = ContinuousThoughtMachine(
-            iterations=args.iterations,
-            d_model=args.d_model,
-            d_input=args.d_input,
-            heads=args.heads,
-            n_synch_out=args.n_synch_out,
-            n_synch_action=args.n_synch_action,
-            synapse_depth=args.synapse_depth,
-            memory_length=args.memory_length,
-            deep_nlms=args.deep_memory,
-            memory_hidden_dims=args.memory_hidden_dims,
-            do_layernorm_nlm=args.do_normalisation,
-            backbone_type=args.backbone_type,
-            positional_embedding_type=args.positional_embedding_type,
-            out_dims=args.out_dims,
-            prediction_reshaper=prediction_reshaper,
-            dropout=args.dropout,
-            dropout_nlm=args.dropout_nlm,
-            neuron_select_type=args.neuron_select_type,
-            n_random_pairing_self=args.n_random_pairing_self
-        ).to(device)
-    elif args.model == 'lstm':
-         model = LSTMBaseline(
-            num_layers=args.num_layers,
+    if args.model_type == 'eirnn':
+        model = Net(
             iterations=args.iterations,
             d_model=args.d_model,
             d_input=args.d_input,
             heads=args.heads,
             backbone_type=args.backbone_type,
+            num_layers=1,
             positional_embedding_type=args.positional_embedding_type,
             out_dims=args.out_dims,
             prediction_reshaper=prediction_reshaper,
             dropout=args.dropout,
         ).to(device)
-    elif args.model == 'ff':
-        model = FFBaseline(
+    elif args.model_type == 'simplernn':
+        model = SimpleNet(
+            iterations=args.iterations,
             d_model=args.d_model,
+            d_input=args.d_input,
+            heads=args.heads,
             backbone_type=args.backbone_type,
+            num_layers=1,
+            positional_embedding_type=args.positional_embedding_type,
             out_dims=args.out_dims,
+            prediction_reshaper=prediction_reshaper,
             dropout=args.dropout,
         ).to(device)
     else:
-        raise ValueError(f"Unknown model type: {args.model}")
+        raise ValueError(f"Unknown model type: {args.model_type}")
 
 
     # For lazy modules so that we can get param count
@@ -323,8 +270,8 @@ if __name__=='__main__':
     test_accuracies = []
     iters = []
     # Conditional metrics for CTM/LSTM
-    train_accuracies_most_certain = [] if args.model in ['ctm', 'lstm'] else None
-    test_accuracies_most_certain = [] if args.model in ['ctm', 'lstm'] else None
+    train_accuracies_most_certain = [] if args.model_type in ['eirnn','simplernn'] else None
+    test_accuracies_most_certain = [] if args.model_type in ['eirnn','simplernn'] else None
 
     scaler = torch.amp.GradScaler("cuda" if "cuda" in device else "cpu", enabled=args.use_amp)
 
@@ -352,7 +299,7 @@ if __name__=='__main__':
                 iters = checkpoint['iters']
 
                 # Load conditional metrics if they exist in checkpoint and are expected for current model
-                if args.model in ['ctm', 'lstm']:
+                if args.model_type in ['eirnn','simplernn']:
                     train_accuracies_most_certain = checkpoint['train_accuracies_most_certain']
                     test_accuracies_most_certain = checkpoint['test_accuracies_most_certain']
 
@@ -387,8 +334,6 @@ if __name__=='__main__':
     with tqdm(total=args.training_iterations, initial=start_iter, leave=False, position=0, dynamic_ncols=True) as pbar:
         for bi in range(start_iter, args.training_iterations):
 
-
-            pdb.set_trace()
             try:
                 inputs, targets = next(iterator)
             except StopIteration:
@@ -405,24 +350,21 @@ if __name__=='__main__':
                 if args.do_compile: # CUDAGraph marking for clean compile
                      torch.compiler.cudagraph_mark_step_begin()
 
-                if args.model == 'ctm':
+                elif args.model_type == 'eirnn':
                     predictions, certainties, synchronisation = model(inputs)
                     loss, where_most_certain = image_classification_loss(predictions, certainties, targets, use_most_certain=True)
+                    # eirnn where_most_certain will just be -1 because use_most_certain is False owing to stability issues with LSTM training
                     accuracy = (predictions.argmax(1)[torch.arange(predictions.size(0), device=predictions.device),where_most_certain] == targets).float().mean().item()
-                    pbar_desc = f'CTM Loss={loss.item():0.3f}. Acc={accuracy:0.3f}. LR={current_lr:0.6f}. Where_certain={where_most_certain.float().mean().item():0.2f}+-{where_most_certain.float().std().item():0.2f} ({where_most_certain.min().item():d}<->{where_most_certain.max().item():d})'
+                    current_lr = optimizer.param_groups[0]['lr']
+                    pbar_desc = f'EIRNN Loss={loss.item():0.3f}. Acc={accuracy:0.3f}. LR={current_lr:0.6f}. Where_certain={where_most_certain.float().mean().item():0.2f}+-{where_most_certain.float().std().item():0.2f} ({where_most_certain.min().item():d}<->{where_most_certain.max().item():d})'
 
-                elif args.model == 'lstm':
+                elif args.model_type == 'simplernn':
                     predictions, certainties, synchronisation = model(inputs)
                     loss, where_most_certain = image_classification_loss(predictions, certainties, targets, use_most_certain=True)
-                    # LSTM where_most_certain will just be -1 because use_most_certain is False owing to stability issues with LSTM training
+                    # simplernn where_most_certain will just be -1 because use_most_certain is False owing to stability issues with LSTM training
                     accuracy = (predictions.argmax(1)[torch.arange(predictions.size(0), device=predictions.device),where_most_certain] == targets).float().mean().item()
-                    pbar_desc = f'LSTM Loss={loss.item():0.3f}. Acc={accuracy:0.3f}. LR={current_lr:0.6f}. Where_certain={where_most_certain.float().mean().item():0.2f}+-{where_most_certain.float().std().item():0.2f} ({where_most_certain.min().item():d}<->{where_most_certain.max().item():d})'
-
-                elif args.model == 'ff':
-                    predictions = model(inputs)
-                    loss = nn.CrossEntropyLoss()(predictions, targets)
-                    accuracy = (predictions.argmax(1) == targets).float().mean().item()
-                    pbar_desc = f'FF Loss={loss.item():0.3f}. Acc={accuracy:0.3f}. LR={current_lr:0.6f}'
+                    current_lr = optimizer.param_groups[0]['lr']
+                    pbar_desc = f'simpleRNN Loss={loss.item():0.3f}. Acc={accuracy:0.3f}. LR={current_lr:0.6f}. Where_certain={where_most_certain.float().mean().item():0.2f}+-{where_most_certain.float().std().item():0.2f} ({where_most_certain.min().item():d}<->{where_most_certain.max().item():d})'
 
             scaler.scale(loss).backward()
 
@@ -435,7 +377,7 @@ if __name__=='__main__':
             optimizer.zero_grad(set_to_none=True)
             scheduler.step()
 
-            pbar.set_description(f'Dataset={args.dataset}. Model={args.model}. {pbar_desc}')
+            pbar.set_description(f'Dataset={args.dataset}. Model={args.model_type}. {pbar_desc}')
 
 
             # Metrics tracking and plotting (conditional logic needed)
@@ -472,23 +414,20 @@ if __name__=='__main__':
                             all_targets_list.append(targets.detach().cpu().numpy())
 
                             # Model-specific forward and loss for evaluation
-                            if args.model == 'ctm':
-                                these_predictions, certainties, _ = model(inputs)
+                            if args.model_type == 'eirnn':
+                                these_predictions, certainties, synchronisation = model(inputs)
                                 loss, where_most_certain = image_classification_loss(these_predictions, certainties, targets, use_most_certain=True)
-                                all_predictions_list.append(these_predictions.argmax(1).detach().cpu().numpy()) # Shape (B, T)
-                                all_predictions_most_certain_list.append(these_predictions.argmax(1)[torch.arange(these_predictions.size(0), device=these_predictions.device), where_most_certain].detach().cpu().numpy()) # Shape (B,)
-
-                            elif args.model == 'lstm':
-                                these_predictions, certainties, _ = model(inputs)
+                                all_predictions_list.append(
+                                    these_predictions.argmax(1).detach().cpu().numpy())  # Shape (B, T)
+                                all_predictions_most_certain_list.append(these_predictions.argmax(1)[torch.arange(these_predictions.size(0),
+                                                                                          device=these_predictions.device), where_most_certain].detach().cpu().numpy())  # Shape (B,)
+                            elif args.model_type == 'simplernn':
+                                these_predictions, certainties, synchronisation = model(inputs)
                                 loss, where_most_certain = image_classification_loss(these_predictions, certainties, targets, use_most_certain=True)
-                                all_predictions_list.append(these_predictions.argmax(1).detach().cpu().numpy()) # Shape (B, T)
-                                all_predictions_most_certain_list.append(these_predictions.argmax(1)[torch.arange(these_predictions.size(0), device=these_predictions.device), where_most_certain].detach().cpu().numpy()) # Shape (B,)
-
-                            elif args.model == 'ff':
-                                these_predictions = model(inputs)
-                                loss = nn.CrossEntropyLoss()(these_predictions, targets)
-                                all_predictions_list.append(these_predictions.argmax(1).detach().cpu().numpy()) # Shape (B,)
-
+                                all_predictions_list.append(
+                                    these_predictions.argmax(1).detach().cpu().numpy())  # Shape (B, T)
+                                all_predictions_most_certain_list.append(these_predictions.argmax(1)[torch.arange(these_predictions.size(0),
+                                                                                          device=these_predictions.device), where_most_certain].detach().cpu().numpy())  # Shape (B,)
                             all_losses.append(loss.item())
 
                             if args.n_test_batches != -1 and inferi >= args.n_test_batches -1 : break # Check condition >= N-1
@@ -499,7 +438,7 @@ if __name__=='__main__':
                     all_predictions = np.concatenate(all_predictions_list) # Shape (N, T) or (N,)
                     train_losses.append(np.mean(all_losses))
 
-                    if args.model in ['ctm', 'lstm']:
+                    if args.model_type in ['eirnn','simplernn']:
                         # Accuracies per tick for CTM/LSTM
                         current_train_accuracies = np.mean(all_predictions == all_targets[...,np.newaxis], axis=0) # Mean over batch dim -> Shape (T,)
                         train_accuracies.append(current_train_accuracies)
@@ -531,22 +470,35 @@ if __name__=='__main__':
                             all_targets_list.append(targets.detach().cpu().numpy())
 
                             # Model-specific forward and loss for evaluation
-                            if args.model == 'ctm':
+                            if args.model_type == 'ctm':
                                 these_predictions, certainties, _ = model(inputs)
                                 loss, where_most_certain = image_classification_loss(these_predictions, certainties, targets, use_most_certain=True)
                                 all_predictions_list.append(these_predictions.argmax(1).detach().cpu().numpy())
                                 all_predictions_most_certain_list.append(these_predictions.argmax(1)[torch.arange(these_predictions.size(0), device=these_predictions.device), where_most_certain].detach().cpu().numpy())
 
-                            elif args.model == 'lstm':
+                            elif args.model_type == 'lstm':
                                 these_predictions, certainties, _ = model(inputs)
                                 loss, where_most_certain = image_classification_loss(these_predictions, certainties, targets, use_most_certain=True)
                                 all_predictions_list.append(these_predictions.argmax(1).detach().cpu().numpy())
                                 all_predictions_most_certain_list.append(these_predictions.argmax(1)[torch.arange(these_predictions.size(0), device=these_predictions.device), where_most_certain].detach().cpu().numpy())
 
-                            elif args.model == 'ff':
+                            elif args.model_type == 'ff':
                                 these_predictions = model(inputs)
                                 loss = nn.CrossEntropyLoss()(these_predictions, targets)
                                 all_predictions_list.append(these_predictions.argmax(1).detach().cpu().numpy())
+
+                            elif args.model_type == 'eirnn':
+                                these_predictions, certainties, _ = model(inputs)
+                                loss, where_most_certain = image_classification_loss(these_predictions, certainties, targets, use_most_certain=True)
+                                all_predictions_list.append(these_predictions.argmax(1).detach().cpu().numpy())
+                                all_predictions_most_certain_list.append(these_predictions.argmax(1)[torch.arange(these_predictions.size(0), device=these_predictions.device), where_most_certain].detach().cpu().numpy())
+
+                            elif args.model_type == 'simplernn':
+                                these_predictions, certainties, _ = model(inputs)
+                                loss, where_most_certain = image_classification_loss(these_predictions, certainties, targets, use_most_certain=True)
+                                all_predictions_list.append(these_predictions.argmax(1).detach().cpu().numpy())
+                                all_predictions_most_certain_list.append(these_predictions.argmax(1)[torch.arange(these_predictions.size(0), device=these_predictions.device), where_most_certain].detach().cpu().numpy())
+
 
                             all_losses.append(loss.item())
 
@@ -558,7 +510,7 @@ if __name__=='__main__':
                     all_predictions = np.concatenate(all_predictions_list)
                     test_losses.append(np.mean(all_losses))
 
-                    if args.model in ['ctm', 'lstm']:
+                    if args.model_type in ['ctm', 'lstm','eirnn','simplernn']:
                         current_test_accuracies = np.mean(all_predictions == all_targets[...,np.newaxis], axis=0)
                         test_accuracies.append(current_test_accuracies)
                         all_predictions_most_certain = np.concatenate(all_predictions_most_certain_list)
@@ -574,7 +526,7 @@ if __name__=='__main__':
                 axacc_test = figacc.add_subplot(212)
                 cm = sns.color_palette("viridis", as_cmap=True)
 
-                if args.model in ['ctm', 'lstm']:
+                if args.model_type in ['ctm', 'lstm','eirnn','simplernn']:
                     # Plot per-tick accuracy for CTM/LSTM
                     train_acc_arr = np.array(train_accuracies) # Shape (N_iters, T)
                     test_acc_arr = np.array(test_accuracies) # Shape (N_iters, T)
@@ -617,8 +569,8 @@ if __name__=='__main__':
                 figloss.savefig(f'{args.log_dir}/losses.png', dpi=150)
                 plt.close(figloss)
 
-                # Conditional Visualization (Only for CTM/LSTM)
-                if args.model in ['ctm', 'lstm']:
+                # Conditional Visualization
+                if args.model_type in ['ctm', 'lstm','eirnn','simplernn']:
                     try: # For safety
                         inputs_viz, targets_viz = next(iter(testloader)) # Get a fresh batch
                         inputs_viz = inputs_viz.to(device)
@@ -632,8 +584,8 @@ if __name__=='__main__':
                             attention_tracking_viz.shape[0], 
                             attention_tracking_viz.shape[1], -1, att_shape[0], att_shape[1])
 
-                        pbar.set_description('Tracking: Neural dynamics plot')
-                        plot_neural_dynamics(post_activations_viz, 100, args.log_dir, axis_snap=True)
+                        #pbar.set_description('Tracking: Neural dynamics plot')
+                        #plot_neural_dynamics(post_activations_viz, 100, args.log_dir, axis_snap=True)
 
                         imgi = 0 # Visualize the first image in the batch
                         img_to_gif = np.moveaxis(np.clip(inputs_viz[imgi].detach().cpu().numpy()*np.array(dataset_std).reshape(len(dataset_std), 1, 1) + np.array(dataset_mean).reshape(len(dataset_mean), 1, 1), 0, 1), 0, -1)
@@ -650,7 +602,7 @@ if __name__=='__main__':
                                                 )
                         del predictions_viz, certainties_viz, pre_activations_viz, post_activations_viz, attention_tracking_viz
                     except Exception as e:
-                        print(f"Visualization failed for model {args.model}: {e}")
+                        print(f"Visualization failed for model {args.model_type}: {e}")
                     
                     
 
@@ -682,7 +634,7 @@ if __name__=='__main__':
                     'random_rng_state': random.getstate(),
                 }
                 # Conditionally add metrics specific to CTM/LSTM
-                if args.model in ['ctm', 'lstm']:
+                if args.model_type in ['ctm', 'lstm','eirnn','simplernn']:
                     checkpoint_data['train_accuracies_most_certain'] = train_accuracies_most_certain
                     checkpoint_data['test_accuracies_most_certain'] = test_accuracies_most_certain
 

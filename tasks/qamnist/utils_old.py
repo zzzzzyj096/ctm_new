@@ -1,6 +1,7 @@
 from models.ctm_qamnist import ContinuousThoughtMachineQAMNIST
 from models.lstm_qamnist import LSTMBaseline
 from models.ctm_simple_qamnist import ContinuousThoughtMachineSIMPLEQAMNIST
+from models.simpleEIRNN_qamnist import NetQA
 from data.custom_datasets import QAMNISTDataset
 from torchvision import datasets
 from torchvision import transforms
@@ -75,6 +76,30 @@ def prepare_model(args, device):
         iterations_per_digit=args.q_num_repeats_per_input,
         iterations_per_question_part=args.q_num_repeats_per_input,
         iterations_for_answering=args.q_num_answer_steps,
+        ).to(device)
+    elif args.model_type == 'simplernn':  # 添加新的模型类型
+        model = LSTMBaseline(
+            iterations=args.iterations,
+            d_model=args.d_model,
+            d_input=args.d_input,
+            heads=args.heads,
+            out_dims=args.out_dims,
+            prediction_reshaper=[-1],
+            iterations_per_digit=args.q_num_repeats_per_input,
+            iterations_per_question_part=args.q_num_repeats_per_input,
+            iterations_for_answering=args.q_num_answer_steps,
+        ).to(device)
+    elif args.model_type == 'eirnn':
+        model = NetQA(
+            iterations=args.iterations,
+            d_model=args.d_model,
+            d_input=args.d_input,
+            heads=args.heads,
+            out_dims=args.out_dims,
+            prediction_reshaper=[-1],
+            iterations_per_digit=args.q_num_repeats_per_input,
+            iterations_per_question_part=args.q_num_repeats_per_input,
+            iterations_for_answering=args.q_num_answer_steps,
         ).to(device)
     else:
         raise ValueError(f"Model must be either ctm , lstm, or ctm_simple,not {args.model_type}")

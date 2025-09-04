@@ -67,11 +67,14 @@ class SynapseUNET(nn.Module):
                  out_dims,
                  depth,
                  minimum_width=16,
-                 dropout=0.0):
+                 dropout=0.0,
+                 use_ei = False,
+                 ei_mask = None):
         super().__init__()
         self.width_out = out_dims
         self.n_deep = depth # Store depth just for reference if needed
-
+        self.use_ei = use_ei
+        self.register_buffer("ei_mask", ei_mask if ei_mask is not None else torch.ones(out_dims))
         # Define UNET structure based on depth
         # Creates `depth` width values, leading to `depth-1` blocks
         widths = np.linspace(out_dims, minimum_width, depth)
@@ -109,6 +112,9 @@ class SynapseUNET(nn.Module):
             # Skip connection LayerNorm operates on width[i]
             self.skip_lns.append(nn.LayerNorm(int(widths[i])))
 
+        self.relu = nn.ReLU()
+        self.neg = Negative()
+
     def forward(self, x):
         # Initial projection
         out_first = self.first_projection(x)
@@ -138,10 +144,20 @@ class SynapseUNET(nn.Module):
             # Add skip connection and apply LayerNorm corresponding to this level
             # skip_lns index also corresponds to the level = skip_idx
             outs_up = self.skip_lns[skip_idx](out_up + skip_connection)
-
+            out = outs_up
+            # ====== E/I 输出处理 ======
+            if self.use_ei and self.ei_mask is not None:
+                # ei_mask: 1 表示 E 神经元，-1 表示 I 神经元
+                e_mask = (self.ei_mask > 0).float().unsqueeze(0)  # shape [1, N]
+                i_mask = (self.ei_mask < 0).float().unsqueeze(0)
+                out_e = self.relu(out) * e_mask
+                out_i = self.neg(self.relu(out)) * i_mask
+                out = out_e + out_i
+            # =========================
         # The final output after all up-projections
-        return outs_up
 
+        return out
+        print('SynapseUNET output shape:', out.shape)
 
 class SuperLinear(nn.Module):
     """
@@ -194,6 +210,7 @@ class SuperLinear(nn.Module):
         # LayerNorm applied across the history dimension for each neuron independently
         self.layernorm = nn.LayerNorm(in_dims, elementwise_affine=True) if do_norm else Identity()
         self.do_norm = do_norm
+        self.N = N
 
         # Initialize weights and biases
         # w1 shape: (memory_length, out_dims, d_model)
@@ -235,6 +252,13 @@ class SuperLinear(nn.Module):
         out = out.squeeze(-1) / self.T
         return out
 
+#---定义一个求负函数，便于后边写-ReLU
+class Negative(nn.Module):
+     def __init__(self):
+         super().__init__()
+
+     def forward(self, x):
+         return -x
 
 # --- Backbone Modules ---
 

@@ -5,7 +5,7 @@ import os
 import argparse
 from tqdm.auto import tqdm
 import torch.nn.functional as F # Used for interpolate
-
+import random
 # --- Plotting & Visualization ---
 import matplotlib.pyplot as plt
 import matplotlib as mpl 
@@ -15,8 +15,7 @@ sns.set_style('darkgrid')
 from matplotlib import patheffects
 import seaborn as sns
 import imageio
-import pdb
-import cv2
+
 from scipy.special import softmax
 from tasks.image_classification.plotting import save_frames_to_mp4
 
@@ -24,17 +23,93 @@ from tasks.image_classification.plotting import save_frames_to_mp4
 from torchvision import transforms
 from torchvision import datasets # Only used for CIFAR100 in debug mode
 from scipy import ndimage # Used in find_island_centers
-from data.custom_datasets import ImageNet 
-from models.ctm import ContinuousThoughtMachine 
-from tasks.image_classification.imagenet_classes import IMAGENET2012_CLASSES 
-from tasks.image_classification.plotting import plot_neural_dynamics
+
+from tasks.image_classification.analysis.utils import prepare_model
 
 # --- Global Settings ---
 np.seterr(divide='ignore') 
 mpl.use('Agg') 
 sns.set_style('darkgrid')
 
-# --- Helper Functions ---
+def parse_args():
+    parser = argparse.ArgumentParser()
+
+    # Model Selection
+    parser.add_argument('--model_type', type=str, default='ctm', choices=['ctm', 'lstm', 'ff','eirnn','simplernn'], help='Model type to train.')
+
+    # Model Architecture
+    # Common
+    parser.add_argument('--d_model', type=int, default=128, help='Dimension of the model.')
+    parser.add_argument('--dropout', type=float, default=0.0, help='Dropout rate.')
+    parser.add_argument('--backbone_type', type=str, default='MNISTBackbone', help='Type of backbone featureiser.')
+    # CTM / LSTM specific
+    parser.add_argument('--d_input', type=int, default=128, help='Dimension of the input (CTM, LSTM).')
+    parser.add_argument('--heads', type=int, default=3, help='Number of attention heads (CTM, LSTM).')
+    parser.add_argument('--iterations', type=int, default=15, help='Number of internal ticks (CTM, LSTM).')
+    parser.add_argument('--positional_embedding_type', type=str, default='none', help='Type of positional embedding (CTM, LSTM).',
+                        choices=['none',
+                                 'learnable-fourier',
+                                 'multi-learnable-fourier',
+                                 'custom-rotational'])
+    # CTM specific
+    #parser.add_argument('--synapse_depth', type=int, default=4, help='Depth of U-NET model for synapse. 1=linear, no unet (CTM only).')
+    #parser.add_argument('--n_synch_out', type=int, default=512, help='Number of neurons to use for output synch (CTM only).')
+    #parser.add_argument('--n_synch_action', type=int, default=512, help='Number of neurons to use for observation/action synch (CTM only).')
+    #parser.add_argument('--neuron_select_type', type=str, default='random-pairing', help='Protocol for selecting neuron subset (CTM only).')
+    #parser.add_argument('--n_random_pairing_self', type=int, default=0, help='Number of neurons paired self-to-self for synch (CTM only).')
+    #parser.add_argument('--memory_length', type=int, default=25, help='Length of the pre-activation history for NLMS (CTM only).')
+    #parser.add_argument('--deep_memory', action=argparse.BooleanOptionalAction, default=True, help='Use deep memory (CTM only).')
+    #parser.add_argument('--memory_hidden_dims', type=int, default=4, help='Hidden dimensions of the memory if using deep memory (CTM only).')
+    #parser.add_argument('--dropout_nlm', type=float, default=None, help='Dropout rate for NLMs specifically. Unset to match dropout on the rest of the model (CTM only).')
+    #parser.add_argument('--do_normalisation', action=argparse.BooleanOptionalAction, default=False, help='Apply normalization in NLMs (CTM only).')
+    # LSTM specific
+    parser.add_argument('--num_layers', type=int, default=1, help='Number of LSTM stacked layers (LSTM only).')
+
+    # Training
+    parser.add_argument('--batch_size', type=int, default=32, help='Batch size for training.')
+    parser.add_argument('--batch_size_test', type=int, default=32, help='Batch size for testing.')
+    parser.add_argument('--lr', type=float, default=1e-3, help='Learning rate for the model.')
+    parser.add_argument('--training_iterations', type=int, default=100001, help='Number of training iterations.')
+    parser.add_argument('--warmup_steps', type=int, default=5000, help='Number of warmup steps.')
+    parser.add_argument('--use_scheduler', action=argparse.BooleanOptionalAction, default=True, help='Use a learning rate scheduler.')
+    parser.add_argument('--scheduler_type', type=str, default='cosine', choices=['multistep', 'cosine'], help='Type of learning rate scheduler.')
+    parser.add_argument('--milestones', type=int, default=[8000, 15000, 20000], nargs='+', help='Learning rate scheduler milestones.')
+    parser.add_argument('--gamma', type=float, default=0.1, help='Learning rate scheduler gamma for multistep.')
+    parser.add_argument('--weight_decay', type=float, default=0.0, help='Weight decay factor.')
+    parser.add_argument('--weight_decay_exclusion_list', type=str, nargs='+', default=[], help='List to exclude from weight decay. Typically good: bn, ln, bias, start')
+    parser.add_argument('--gradient_clipping', type=float, default=-1, help='Gradient quantile clipping value (-1 to disable).')
+    parser.add_argument('--do_compile', action=argparse.BooleanOptionalAction, default=False, help='Try to compile model components (backbone, synapses if CTM).')
+    parser.add_argument('--num_workers_train', type=int, default=1, help='Num workers training.')
+
+    # Housekeeping
+    parser.add_argument('--log_dir', type=str, default='logs/scratch', help='Directory for logging.')
+    parser.add_argument('--dataset', type=str, default='mnist', help='Dataset to use.')
+    parser.add_argument('--data_root', type=str, default='data/', help='Where to save dataset.')
+    parser.add_argument('--save_every', type=int, default=1000, help='Save checkpoints every this many iterations.')
+    parser.add_argument('--seed', type=int, default=412, help='Random seed.')
+    parser.add_argument('--reload', action=argparse.BooleanOptionalAction, default=False, help='Reload from disk?')
+    parser.add_argument('--reload_model_only', action=argparse.BooleanOptionalAction, default=False, help='Reload only the model from disk?')
+    parser.add_argument('--strict_reload', action=argparse.BooleanOptionalAction, default=True, help='Should use strict reload for model weights.') # Added back
+    parser.add_argument('--track_every', type=int, default=1000, help='Track metrics every this many iterations.')
+    parser.add_argument('--n_test_batches', type=int, default=20, help='How many minibatches to approx metrics. Set to -1 for full eval')
+    parser.add_argument('--device', type=int, nargs='+', default=[-1], help='List of GPU(s) to use. Set to -1 to use CPU.')
+    parser.add_argument('--use_amp', action=argparse.BooleanOptionalAction, default=False, help='AMP autocast.')
+    #PLOT
+    parser.add_argument('--output_dir', type=str, default='tasks/image_classification/analysis/outputs/imagenet_viz',
+                        help="Directory for visualization outputs")
+    parser.add_argument('--debug', action=argparse.BooleanOptionalAction, default=True,
+                        help='Debug mode: use CIFAR100 instead of ImageNet for debugging.')
+    parser.add_argument('--plot_every', type=int, default=10, help="How often to plot.")
+    parser.add_argument('--actions', type=str, nargs='+', default=['videos'], choices=['plots', 'videos', 'demo'],
+                        help="Actions to take. Plots=results plots; videos=gifs/mp4s to watch attention; demo: last frame of internal ticks")
+    parser.add_argument('--inference_iterations', type=int, default=50, help="Iterations to use during inference.")
+    parser.add_argument('--data_indices', type=int, nargs='+', default=[],
+                        help="Use specific indices in validation data for demos, otherwise random.")
+    parser.add_argument('--N_to_viz', type=int, default=5, help="When not supplying data_indices.")
+    # parser.add_argument('--data_root', type=str, required=True, help="Path to ImageNet dataset")
+
+    args = parser.parse_args()
+    return args
 
 def find_island_centers(array_2d, threshold):
     """
@@ -60,28 +135,31 @@ def find_island_centers(array_2d, threshold):
             areas.append(np.sum(island_mask)) # Area is the count of pixels in the island
     return centers, areas
 
-def parse_args():
-    """Parses command-line arguments."""
-    # Note: Original had two ArgumentParser instances, using the second one.
-    parser = argparse.ArgumentParser(description="Visualize Continuous Thought Machine Attention")
-    parser.add_argument('--actions', type=str, nargs='+', default=['videos'], choices=['plots', 'videos', 'demo'], help="Actions to take. Plots=results plots; videos=gifs/mp4s to watch attention; demo: last frame of internal ticks")
-    parser.add_argument('--device', type=int, nargs='+', default=[-1], help="GPU device index or -1 for CPU")
-    
-    parser.add_argument('--checkpoint', type=str, default='checkpoints/imagenet/ctm_imagenet.pt', help="Path to ATM checkpoint")
-    parser.add_argument('--output_dir', type=str, default='tasks/image_classification/analysis/outputs/imagenet_viz', help="Directory for visualization outputs")
-    parser.add_argument('--debug', action=argparse.BooleanOptionalAction, default=True, help='Debug mode: use CIFAR100 instead of ImageNet for debugging.')
-    parser.add_argument('--plot_every', type=int, default=10, help="How often to plot.")
-    
-    parser.add_argument('--inference_iterations', type=int, default=50, help="Iterations to use during inference.")
-    parser.add_argument('--data_indices', type=int, nargs='+', default=[], help="Use specific indices in validation data for demos, otherwise random.")
-    parser.add_argument('--N_to_viz', type=int, default=5, help="When not supplying data_indices.")
-    parser.add_argument('--data_root', type=str, required=True, help="Path to ImageNet dataset")
-    return parser.parse_args()
+
+def set_global_seed(seed):
+    """设置所有随机库的全局种子以确保可复现性"""
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+
+def compare_args(saved_args, current_args):
+    """比较两个参数对象是否相同"""
+    # 比较关键参数
+    key_params = [
+        'd_model', 'd_input', 'n_synch_out', 'n_synch_action',
+        'heads', 'synapse_depth', 'memory_length', 'deep_memory'
+    ]
+    for key in key_params:
+        if getattr(saved_args, key, None) != getattr(current_args, key, None):
+            return False
+    return True
 
 
-# --- Main Execution Block ---
-if __name__=='__main__':
-
+def main():
+    SEED = 42
     # --- Setup ---
     args = parse_args()
     if args.device[0] != -1 and torch.cuda.is_available():
@@ -90,47 +168,75 @@ if __name__=='__main__':
         device = 'cpu'
     print(f"Using device: {device}")
 
-    # --- Load Checkpoint & Model ---
-    print(f"Loading checkpoint: {args.checkpoint}")
-    checkpoint = torch.load(args.checkpoint, map_location=device, weights_only=False) # removed weights_only=False
-    model_args = checkpoint['args']
-
-    # Handle legacy arguments from checkpoint if necessary
-    if not hasattr(model_args, 'backbone_type') and hasattr(model_args, 'resnet_type'):
-        model_args.backbone_type = f'{model_args.resnet_type}-{getattr(model_args, "resnet_feature_scales", [4])[-1]}'
-    if not hasattr(model_args, 'neuron_select_type'):
-        model_args.neuron_select_type = 'first-last'
-
+    #---data---
+    prediction_reshaper = [-1]
 
     # Instantiate Model based on checkpoint args
-    print("Instantiating CTM model...")
-    model = ContinuousThoughtMachine(
-        iterations=model_args.iterations,
-        d_model=model_args.d_model,
-        d_input=model_args.d_input,
-        heads=model_args.heads,
-        n_synch_out=model_args.n_synch_out,
-        n_synch_action=model_args.n_synch_action,
-        synapse_depth=model_args.synapse_depth,
-        memory_length=model_args.memory_length,
-        deep_nlms=model_args.deep_memory,
-        memory_hidden_dims=model_args.memory_hidden_dims,
-        do_layernorm_nlm=model_args.do_normalisation,
-        backbone_type=model_args.backbone_type,
-        positional_embedding_type=model_args.positional_embedding_type,
-        out_dims=model_args.out_dims,
-        prediction_reshaper=[-1], # Kept fixed value from original code
-        dropout=0, # No dropout for eval
-        neuron_select_type=model_args.neuron_select_type,
-        n_random_pairing_self=model_args.n_random_pairing_self,
-    ).to(device)
+    model = None
+    checkpoint_path = os.path.join(args.log_dir, 'checkpoint.pt')
 
-    # Load weights into model
-    load_result = model.load_state_dict(checkpoint['model_state_dict'], strict=False)
-    print(f" Loaded state_dict. Missing: {load_result.missing_keys}, Unexpected: {load_result.unexpected_keys}")
-    model.eval() # Set model to evaluation mode
+    # --- 加载模型检查点 ---
+    print(f"Loading checkpoint: {checkpoint_path}")
+    try:
+        checkpoint = torch.load(
+            checkpoint_path,
+            map_location=device,
+            weights_only=False
+        )
 
-    # --- Prepare Dataset ---
+        # 使用检查点中保存的参数构建模型
+        if 'args' in checkpoint:
+            saved_args = checkpoint['args']
+
+            args.d_model = saved_args.d_model
+            args.d_input = saved_args.d_input
+            args.heads = saved_args.heads
+            args.iterations = saved_args.iterations
+            args.model_type = saved_args.model_type
+            args.lr = saved_args.lr
+
+
+            #调试
+            print("Saved args:", saved_args)
+            print("Current args:", args)
+
+            # 检查是否需要重新构建模型
+            if model is None or not compare_args(saved_args, args):
+                print("Building model with saved parameters")
+                # 注意：prepare_model 需要 prediction_reshaper 作为第一个参数
+                prediction_reshaper = [-1]
+                model = prepare_model(prediction_reshaper, saved_args, device)
+        else:
+            # 如果检查点中没有保存的参数，使用当前参数构建模型
+            if model is None:
+                prediction_reshaper = [-1]
+                model = prepare_model(prediction_reshaper, args, device)
+
+        # 加载模型权重
+        model.load_state_dict(checkpoint['model_state_dict'], strict=True)
+        print(f"Successfully loaded model from {checkpoint_path}")
+
+    except FileNotFoundError:
+        print(f"Checkpoint file not found: {checkpoint_path}")
+        return
+    except Exception as e:
+        print(f"Error loading checkpoint {checkpoint_path}: {e}")
+        return
+    finally:
+        # 清理内存（如果checkpoint已加载）
+        if 'checkpoint' in locals():
+            del checkpoint
+            import gc
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+
+    model.eval()
+
+    print(f"{args.model_type} model loaded successfully")
+
+
+        # --- Prepare Dataset ---
     if args.debug:
         print("Debug mode: Using CIFAR100")
         # CIFAR100 specific normalization constants
@@ -145,35 +251,24 @@ if __name__=='__main__':
         validation_dataset = datasets.CIFAR100('data/', train=False, transform=transform, download=True)
         validation_dataset_centercrop = datasets.CIFAR100('data/', train=True, transform=transform, download=True)
     else:
-        print("Using ImageNet")
+        print("Using mnist")
         # ImageNet specific normalization constants
-        dataset_mean = [0.485, 0.456, 0.406]
-        dataset_std = [0.229, 0.224, 0.225]
-        img_size = 256 # Resize ImageNet images
+        dataset_mean = (0.1307,)  # 单通道均值
+        dataset_std = (0.3081,)
         # Note: Original comment mentioned no CenterCrop, this transform reflects that.
         transform = transforms.Compose([
-            transforms.Resize(img_size),
             transforms.ToTensor(),
-            transforms.Normalize(mean=dataset_mean, std=dataset_std) # Normalize
+            transforms.Normalize(dataset_mean, dataset_std)
         ])
-        validation_dataset = ImageNet(which_split='validation', transform=transform, data_root=args.data_root)
-        validation_dataset_centercrop = ImageNet(which_split='train', transform=transforms.Compose([
-            transforms.Resize(img_size),
-            transforms.RandomCrop(img_size),
-            transforms.ToTensor(),
-            transforms.Normalize(mean=dataset_mean, std=dataset_std) # Normalize
-        ]),
-        data_root=args.data_root
-        )
-    class_labels = list(IMAGENET2012_CLASSES.values()) # Load actual class names
+        validation_dataset = datasets.MNIST(root="./data", train=True, download=True, transform=transform)
+        class_labels = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9']
 
     os.makedirs(f'{args.output_dir}', exist_ok=True)
 
     interp_mode = 'nearest'
     cmap_calib = sns.color_palette('viridis', as_cmap=True)
     loader = torch.utils.data.DataLoader(validation_dataset, batch_size=1, shuffle=False, num_workers=0, drop_last=False)
-    loader_crop = torch.utils.data.DataLoader(validation_dataset_centercrop, batch_size=64, shuffle=True, num_workers=0, drop_last=True)
-
+    loader_crop = torch.utils.data.DataLoader(validation_dataset, batch_size=args.batch_size_test, shuffle=True, num_workers=0, drop_last=False)
     model.eval()
 
     figscale = 0.85
@@ -183,10 +278,10 @@ if __name__=='__main__':
     tracked_targets = []
     tracked_predictions = []
 
-    if model.iterations != args.inference_iterations:
+    if model.iterations != args.iterations:
         print('WARNING: you are setting inference iterations to a value not used during training!')
 
-    model.iterations = args.inference_iterations
+    model.iterations = args.iterations
 
     if 'plots' in args.actions:
     
@@ -199,15 +294,12 @@ if __name__=='__main__':
                     if bi==0:
                         dynamics_inputs, _ = next(iter(loader_crop))  # Use this because of batching
                         _, _, _, _, post_activations_viz, _ = model(inputs, track=True)
-                        plot_neural_dynamics(post_activations_viz, 15*10, args.output_dir, axis_snap=True, N_per_row=15)
+                        #plot_neural_dynamics(post_activations_viz, 15*10, args.output_dir, axis_snap=True, N_per_row=15)
                     predictions, certainties, synchronisation = model(inputs)
 
                     tracked_predictions.append(predictions.detach().cpu().numpy())
                     tracked_targets.append(targets.detach().cpu().numpy())
                     tracked_certainties.append(certainties.detach().cpu().numpy())
-
-                    
-
 
                     pbar.set_description(f'Processing base image of size {inputs.shape}')
                     pbar.update(1)
@@ -217,8 +309,6 @@ if __name__=='__main__':
                         concatenated_targets = np.concatenate(tracked_targets, axis=0)
                         concatenated_predictions = np.concatenate(tracked_predictions, axis=0)
                         concatenated_predictions_argsorted = np.argsort(concatenated_predictions, 1)[:,::-1]
-
-
 
                         for topk in [1, 5]:
                             concatenated_predictions_argsorted_topk = concatenated_predictions_argsorted[:,:topk]
@@ -257,7 +347,6 @@ if __name__=='__main__':
                             fig.savefig(f'{args.output_dir}/accuracy_types_{topk}.pdf', dpi=200)
                             plt.close(fig)
                             print(f'k={topk}. Accuracy most certain at last internal tick={100*np.array(accs_certain)[-1]:0.4f}')  # Using certainty based approach
-
 
                         indices_over_80 = []
                         classes_80 = {}
@@ -318,18 +407,15 @@ if __name__=='__main__':
                             ax.set_ylabel('% of data')
                             ax.legend(loc='lower right')
 
-
                             fig.tight_layout(pad=0.1)
                             fig.savefig(f'{args.output_dir}/steps_versus_correct_{certainty_threshold}.png', dpi=200)
                             fig.savefig(f'{args.output_dir}/steps_versus_correct_{certainty_threshold}.pdf', dpi=200)
                             plt.close(fig)
-                            
 
                         class_list = list(classes_80.keys())
                         mean_steps = [np.mean(classes_80[cls]) for cls in class_list]
                         std_steps = [np.std(classes_80[cls]) for cls in class_list]
 
-                        
                         # Following code plots the class distribution over internal ticks
                         indices_to_show = np.arange(1000)
 
@@ -356,16 +442,11 @@ if __name__=='__main__':
                         fig.savefig(f'{args.output_dir}/class_counts.pdf', dpi=200)
                         plt.close(fig)
 
-
-
-
-                        
                         # The following code plots calibration
                         probability_space = np.linspace(0, 1, 10)
                         fig = plt.figure(figsize=(6*figscale, 4*figscale))
                         ax = fig.add_subplot(111)
 
-                        
                         color_linspace = np.linspace(0, 1, concatenated_predictions.shape[-1])
                         with tqdm(total=(concatenated_predictions.shape[-1]), initial=0, leave=False, position=1, dynamic_ncols=True) as pbarinner:
                             pbarinner.set_description(f'Calibration')
@@ -462,11 +543,21 @@ if __name__=='__main__':
                 # --- Prepare Image for Display ---
                 # Denormalize the input tensor for visualization
                 data_img_tensor = inputs[0].cpu() # Get first item in batch, move to CPU
-                mean_tensor = torch.tensor(dataset_mean).view(3, 1, 1)
-                std_tensor = torch.tensor(dataset_std).view(3, 1, 1)
+
+                num_channels = 1  # MNIST专用，
+                mean_tensor = torch.tensor(dataset_mean).view(num_channels, 1, 1)
+                std_tensor = torch.tensor(dataset_std).view(num_channels, 1, 1)
                 data_img_denorm = data_img_tensor * std_tensor + mean_tensor
                 # Permute to (H, W, C) and convert to numpy, clip to [0, 1]
-                data_img_np = data_img_denorm.permute(1, 2, 0).detach().numpy()
+                if num_channels == 1:
+                    # 单通道图像直接处理
+                    data_img_np = data_img_denorm.squeeze(0).detach().numpy()
+                    # 添加伪色彩维度，因为Matplotlib需要三维数组
+                    data_img_np = np.stack([data_img_np] * 3, axis=-1)
+                else:
+                    # RGB通道图像
+                    data_img_np = data_img_denorm.permute(1, 2, 0).detach().numpy()
+                # 裁剪到有效范围并复制
                 data_img_np = np.clip(data_img_np, 0, 1)
                 img_h, img_w = data_img_np.shape[:2]
 
@@ -523,7 +614,6 @@ if __name__=='__main__':
                     elif head_routes[head_i]: # If no center now, repeat last known center if history exists
                             head_routes[head_i].append(head_routes[head_i][-1])
                 
-                        
 
                 # --- Plotting Setup ---
                 mosaic = [['head_mean', 'head_mean', 'head_mean', 'head_mean', 'head_mean_overlay', 'head_mean_overlay', 'head_mean_overlay', 'head_mean_overlay'],
@@ -562,7 +652,7 @@ if __name__=='__main__':
                 ax_prob = axes['probabilities']
                 # Get probabilities for the current step
                 ps = torch.softmax(predictions[0, :, step_i], -1).detach().cpu()
-                k = 15 # Top k predictions
+                k = 5 # Top k predictions
                 topk_probs, topk_indices = torch.topk(ps, k, dim=0, largest=True)
                 topk_indices = topk_indices.numpy()
                 topk_probs = topk_probs.numpy()
@@ -600,7 +690,6 @@ if __name__=='__main__':
                             patheffects.Normal()
                         ])
 
-
                 # --- Plot Attention Heads & Overlays (using nearest interp) ---
                 # Re-interpolate attention using nearest neighbor for visual plotting
                 attention_interp_plot = F.interpolate(
@@ -614,17 +703,11 @@ if __name__=='__main__':
                 attn_mean_max = attn_mean.max()
                 attn_mean = (attn_mean - attn_mean_min) / (attn_mean_max - attn_mean_min)
 
-
                 # Normalize each head's map to [0, 1]
                 attn_min_plot = attention_interp_plot.view(n_heads, -1).min(dim=-1, keepdim=True)[0].unsqueeze(-1)
                 attn_max_plot = attention_interp_plot.view(n_heads, -1).max(dim=-1, keepdim=True)[0].unsqueeze(-1)
                 attention_interp_plot = (attention_interp_plot - attn_min_plot) / (attn_max_plot - attn_min_plot + 1e-6)
                 attention_interp_plot_np = attention_interp_plot.detach().cpu().numpy()
-                
-
-
-                
-
 
                 for head_i in list(range(n_heads)) + [-1]:
                     axname = f'head_{head_i}' if head_i != -1 else 'head_mean'
@@ -679,12 +762,10 @@ if __name__=='__main__':
                     else: # If no path yet, just show the image
                             ax_overlay.imshow(np.flipud(data_img_np), origin='lower')
 
-
                     # Set limits and turn off axes for overlay
                     ax_overlay.set_xlim([0, img_w - 1])
                     ax_overlay.set_ylim([0, img_h - 1])
                     ax_overlay.axis('off')
-                
 
                 # --- Finalize and Save Frame ---
                 fig.tight_layout(pad=0.1) # Adjust spacing
@@ -696,8 +777,6 @@ if __name__=='__main__':
                 image_numpy = image_numpy.reshape(*reversed(canvas.get_width_height()), 4)[:,:,:3] # Get RGB
 
                 frames.append(image_numpy) # Add to list for GIF
-
-                
 
                 plt.close(fig) # Close figure to free memory
 
@@ -874,7 +953,6 @@ if __name__=='__main__':
                             patheffects.Normal()
                         ])
 
-
                 # --- Plot Attention Heads & Overlays (using nearest interp) ---
                 # Re-interpolate attention using nearest neighbor for visual plotting
                 attention_interp_plot = F.interpolate(
@@ -948,11 +1026,6 @@ if __name__=='__main__':
                     ax.imshow(img_to_plot)
                     ax.axis('off')
 
-
-
-                    
-
-
                 # --- Finalize and Save Frame ---
                 fig.tight_layout(pad=0.1) # Adjust spacing
 
@@ -972,4 +1045,6 @@ if __name__=='__main__':
             outfilename = os.path.join(index_output_dir, f'{di}_demo.mp4')
             save_frames_to_mp4([fm[:,:,::-1] for fm in frames], outfilename, fps=15, gop_size=1, preset='veryslow')
         
-                        
+# --- Main Execution Block ---
+if __name__=='__main__':
+    main()

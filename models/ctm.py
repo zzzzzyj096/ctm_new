@@ -95,8 +95,10 @@ class ContinuousThoughtMachine(nn.Module):
                  prediction_reshaper=[-1],
                  dropout=0,
                  dropout_nlm=None,
-                 neuron_select_type='random-pairing',  
+                 neuron_select_type='first-last',
                  n_random_pairing_self=0,
+                 use_ei=False,
+                 ei_ratio=0.8
                  ):
         super(ContinuousThoughtMachine, self).__init__()
 
@@ -113,6 +115,8 @@ class ContinuousThoughtMachine(nn.Module):
         self.positional_embedding_type = positional_embedding_type
         self.neuron_select_type = neuron_select_type
         self.memory_length = memory_length
+        self.use_ei = use_ei
+        self.ei_ratio = ei_ratio
         dropout_nlm = dropout if dropout_nlm is None else dropout_nlm
 
         # --- Assertions ---
@@ -128,7 +132,7 @@ class ContinuousThoughtMachine(nn.Module):
         self.attention = nn.MultiheadAttention(self.d_input, heads, dropout, batch_first=True) if heads else None
         
         # --- Core CTM Modules ---
-        self.synapses = self.get_synapses(synapse_depth, d_model, dropout)
+        self.synapses = self.get_synapses(synapse_depth, d_model, dropout, use_ei=self.use_ei, ei_ratio=self.ei_ratio)
         self.trace_processor = self.get_neuron_level_models(deep_nlms, do_layernorm_nlm, memory_length, memory_hidden_dims, d_model, dropout_nlm)
 
         #  --- Start States ---
@@ -364,7 +368,7 @@ class ContinuousThoughtMachine(nn.Module):
                 )
             )
 
-    def get_synapses(self, synapse_depth, d_model, dropout):
+    def get_synapses(self, synapse_depth, d_model, dropout, use_ei=False, ei_ratio=0.8):
         """
         The synapse model is the recurrent model in the CTM. It's purpose is to share information
         across neurons. If using depth of 1, this is just a simple single layer with nonlinearity and layernomr.
@@ -377,14 +381,37 @@ class ContinuousThoughtMachine(nn.Module):
         it ourselves.
         """
         if synapse_depth == 1:
-            return nn.Sequential(
+            base_layers = nn.Sequential(
                 nn.Dropout(dropout),
                 nn.LazyLinear(d_model * 2),
                 nn.GLU(),
                 nn.LayerNorm(d_model)
             )
+            if use_ei:
+                n_exc = int(d_model * ei_ratio)
+                n_inh = d_model - n_exc
+
+                class EISynapse(nn.Module):
+                    def __init__(self, base_layers, n_exc, n_inh):
+                        super().__init__()
+                        self.base = base_layers
+                        self.n_exc = n_exc
+                        self.n_inh = n_inh
+                        self.relu = nn.ReLU()
+
+                    def forward(self, x):
+                        out = self.base(x)
+                        exc = self.relu(out[:, :self.n_exc])
+                        inh = -self.relu(out[:, self.n_exc:])
+                        return torch.cat([exc, inh], dim=-1)
+
+                return EISynapse(base_layers, n_exc, n_inh)
+            else:
+                return base_layers
         else:
-            return SynapseUNET(d_model, synapse_depth, 16, dropout)  # hard-coded minimum width of 16; future work TODO.
+            unet = SynapseUNET(d_model, synapse_depth, 16, dropout, use_ei=use_ei,
+                               ei_mask=self.ei_mask if hasattr(self, 'ei_mask') else None)
+            return unet
 
     def set_synchronisation_parameters(self, synch_type: str, n_synch: int, n_random_pairing_self: int = 0):
             """
@@ -472,8 +499,6 @@ class ContinuousThoughtMachine(nn.Module):
         else:
             raise ValueError(f"Invalid neuron selection type: {self.neuron_select_type}")
         return synch_representation_size
-
-
 
 
     def forward(self, x, track=False):

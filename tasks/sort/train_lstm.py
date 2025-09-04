@@ -15,8 +15,9 @@ if torch.cuda.is_available():
 from tqdm.auto import tqdm
 
 from data.custom_datasets import SortDataset
-from models.ctm_sort import ContinuousThoughtMachineSORT
-from tasks.image_classification.plotting import plot_neural_dynamics, make_classification_gif
+
+from models.lstm_sort import LSTMSORT
+
 from utils.housekeeping import set_seed, zip_python_code
 from utils.losses import sort_loss
 from tasks.sort.utils import compute_ctc_accuracy, decode_predictions
@@ -58,6 +59,8 @@ def parse_args():
     parser = argparse.ArgumentParser()
 
     # Model Architecture
+    parser.add_argument('--model_type', type=str, default="simplernn", choices=['ctm', 'lstm', 'eirnn', 'simplernn'],
+                        help='The type of model to train.')
     parser.add_argument('--d_model', type=int, default=512, help='Dimension of the model.')
     parser.add_argument('--d_input', type=int, default=128, help='Dimension of the input.')
     parser.add_argument('--synapse_depth', type=int, default=4,
@@ -70,7 +73,7 @@ def parse_args():
                         help='Protocol for selecting neuron subset.')
     parser.add_argument('--n_random_pairing_self', type=int, default=0,
                         help='Number of neurons paired self-to-self for synch.')
-
+    parser.add_argument('--num_layers', type=int, default=1, help='Number of LSTM/RNN layers')
     parser.add_argument('--iterations', type=int, default=50, help='Number of internal ticks.')
     parser.add_argument('--memory_length', type=int, default=25, help='Length of the pre-activation history for NLMS.')
     parser.add_argument('--deep_memory', action=argparse.BooleanOptionalAction, default=True,
@@ -111,7 +114,7 @@ def parse_args():
                         help='Try to compile the synapses, backbone, and nlms.')
 
     # Logging and Saving
-    parser.add_argument('--log_dir', type=str, default='logs/scratch',
+    parser.add_argument('--log_dir', type=str, default='logs/sort/eirnn',
                         help='Directory for logging.')
     parser.add_argument('--N_to_sort', type=int, default=30, help='N numbers to sort.')
     parser.add_argument('--save_every', type=int, default=1000, help='Save checkpoints every this many iterations.')
@@ -166,29 +169,20 @@ if __name__ == '__main__':
         device = 'mps'
     else:
         device = 'cpu'
-    print(f'Running model {args.model} on {device}')
+    print(f'Running model {args.model_type} on {device}')
 
     # Build model
-    model = ContinuousThoughtMachineSORT(
+    model = LSTMSORT(
         iterations=args.iterations,
         d_model=args.d_model,
         d_input=args.out_dims - 1,
         heads=args.heads,
-        n_synch_out=args.n_synch_out,
-        n_synch_action=args.n_synch_action,
-        synapse_depth=args.synapse_depth,
-        memory_length=args.memory_length,
-        deep_nlms=args.deep_memory,
-        memory_hidden_dims=args.memory_hidden_dims,
-        do_layernorm_nlm=args.do_normalisation,
-        backbone_type='none',
+        backbone_type=args.backbone_type,
         positional_embedding_type=args.positional_embedding_type,
         out_dims=args.out_dims,
-        prediction_reshaper=prediction_reshaper,
         dropout=args.dropout,
-        dropout_nlm=args.dropout_nlm,
-        neuron_select_type=args.neuron_select_type,
-        n_random_pairing_self=args.n_random_pairing_self,
+        prediction_reshaper=prediction_reshaper,
+        num_layers=args.num_layers,
     ).to(device)
 
     model.train()
@@ -284,10 +278,10 @@ if __name__ == '__main__':
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
 
-    if args.do_compile:
-        print('Compiling...')
-        model.synapses = torch.compile(model.synapses, mode='reduce-overhead', fullgraph=True)
-        model.backbone = torch.compile(model.backbone, mode='reduce-overhead', fullgraph=True)
+    #if args.do_compile:
+        #print('Compiling...')
+        #model.synapses = torch.compile(model.synapses, mode='reduce-overhead', fullgraph=True)
+        #model.backbone = torch.compile(model.backbone, mode='reduce-overhead', fullgraph=True)
 
     # Training
     iterator = iter(trainloader)  # Not training in epochs, but rather iterations. Need to reset this from time to time
@@ -337,7 +331,7 @@ if __name__ == '__main__':
                     predictions, certainties, synchronisation, pre_activations, post_activations, _ = model(inputs,
                                                                                                             track=True)
                     pbar.set_description('Tracking: Neural dynamics')
-                    plot_neural_dynamics(post_activations, 100, args.log_dir)
+                    #plot_neural_dynamics(post_activations, 100, args.log_dir)
 
                     imgi = 0
 

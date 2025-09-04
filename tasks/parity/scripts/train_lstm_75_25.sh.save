@@ -2,7 +2,8 @@
 RUN=1
 ITERATIONS=75
 MEMORY_LENGTH=25
-LOG_DIR="logs/parity/run${RUN}/ctm_${ITERATIONS}_${MEMORY_LENGTH}"
+LOG_DIR="logs/parity/run${RUN}/lstm_${ITERATIONS}_${MEMORY_LENGTH}"
+
 SEED=$((RUN - 1))
 
 python -m tasks.parity.train \
@@ -14,12 +15,7 @@ python -m tasks.parity.train \
     --n_test_batches 20 \
     --d_model 512 \
     --d_input 256 \
-    --n_synch_out 16 \
-    --n_synch_action 16 \
-    --heads 4 \
-    --memory_hidden_dims 8 \
-    --dropout 0.0 \
-    --deep_memory \
+    --heads
     --no-do_normalisation \
     --no-full_eval \
     --weight_decay 0.0 \
@@ -41,4 +37,3 @@ python -m tasks.parity.train \
     --device 0 \
     --no-use_amp \
     --neuron_select_type "random-pairing"
-

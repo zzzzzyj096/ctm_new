@@ -31,12 +31,12 @@ python -m tasks.parity.train \
     --dataset "parity" \
     --batch_size 32 \
     --batch_size_test 128 \
-    --lr=0.00010 \
+    --lr=0.00005 \
     --training_iterations 100001 \
     --warmup_steps 500 \
     --track_every 1000 \
     --save_every 5000 \
-    --no-reload \
+    --reload \
     --no-reload_model_only \
     --device 0 \
     --no-use_amp \
